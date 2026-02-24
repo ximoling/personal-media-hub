@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+.venv
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test files
+test_image.jpg
+nul
+TEST_REPORT.md
+
+# Backend data
+backend/data/uploads/
+backend/data/thumbs/
+backend/data/database.db
+
+# Logs
+*.log

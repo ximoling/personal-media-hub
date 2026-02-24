@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personal Media Hub</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <script src="https://unpkg.com/element-plus/dist/index.full.js"></script>
+    <script src="https://unpkg.com/@element-plus/icons-vue"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; }
+        
+        .app-container { min-height: 100vh; }
+        .header { background: #409EFF; color: white; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; height: 60px; }
+        .header h1 { font-size: 20px; }
+        .user-info { display: flex; align-items: center; gap: 15px; }
+        
+        .main-container { display: flex; min-height: calc(100vh - 60px); }
+        .sidebar { width: 200px; background: #fff; padding: 20px; box-shadow: 2px 0 5px rgba(0,0,0,0.05); }
+        .sidebar-menu { list-style: none; }
+        .sidebar-menu li { padding: 12px 15px; cursor: pointer; border-radius: 4px; margin-bottom: 5px; display: flex; align-items: center; gap: 10px; }
+        .sidebar-menu li:hover { background: #f0f0f0; }
+        .sidebar-menu li.active { background: #409EFF; color: white; }
+        
+        .content { flex: 1; padding: 20px; overflow-y: auto; }
+        
+        .upload-area { border: 2px dashed #d9d9d9; border-radius: 8px; padding: 40px; text-align: center; margin-bottom: 20px; transition: all 0.3s; }
+        .upload-area:hover, .upload-area.dragover { border-color: #409EFF; background: #f0f8ff; }
+        .upload-icon { font-size: 48px; color: #409EFF; margin-bottom: 10px; }
+        
+        .file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; }
+        .file-card { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1); transition: transform 0.2s; position: relative; }
+        .file-card:hover { transform: translateY(-5px); box-shadow: 0 4px 16px rgba(0,0,0,0.15); }
+        .file-card .file-preview { width: 100%; height: 200px; object-fit: cover; cursor: pointer; display: flex; align-items: center; justify-content: center; background: #f5f7fa; }
+        .file-card .file-preview img { max-width: 100%; max-height: 100%; }
+        .file-preview-icon { font-size: 64px; }
+        .file-preview-icon.image { color: #67C23A; }
+        .file-preview-icon.video { color: #E6A23C; }
+        .file-preview-icon.document { color: #409EFF; }
+        
+        .file-info { padding: 12px; }
+        .file-title { font-size: 14px; color: #333; margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .file-meta { font-size: 12px; color: #999; }
+        .file-actions { position: absolute; top: 5px; right: 5px; display: none; }
+        .file-card:hover .file-actions { display: block; }
+        
+        .login-container { height: 100vh; display: flex; justify-content: center; align-items: center; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .login-box { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,0.2); width: 400px; }
+        .login-box h2 { text-align: center; margin-bottom: 30px; color: #333; }
+        
+        .preview-modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; justify-content: center; align-items: center; z-index: 1000; }
+        .preview-modal img, .preview-modal video { max-width: 90%; max-height: 90%; object-fit: contain; }
+        .preview-modal .document-preview { width: 80%; height: 80%; background: white; overflow: auto; padding: 20px; }
+        .close-btn { position: absolute; top: 20px; right: 40px; color: white; font-size: 40px; cursor: pointer; }
+        
+        .loading { text-align: center; padding: 40px; }
+        .empty-state { text-align: center; padding: 60px; color: #999; }
+        
+        .upload-progress { margin-top: 20px; }
+        
+        .type-filters { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .type-filter { padding: 8px 16px; border-radius: 20px; cursor: pointer; border: 1px solid #dcdfe6; background: white; transition: all 0.3s; }
+        .type-filter:hover { border-color: #409EFF; }
+        .type-filter.active { background: #409EFF; color: white; border-color: #409EFF; }
+        
+        .search-box { margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <!-- Login Page -->
+        <div v-if="!isLoggedIn" class="login-container">
+            <div class="login-box">
+                <h2>🏠 Personal Media Hub</h2>
+                <el-tabs v-model="activeTab" stretch>
+                    <el-tab-pane label="登录" name="login">
+                        <el-form :model="loginForm" :rules="rules" ref="loginRef">
+                            <el-form-item prop="username">
+                                <el-input v-model="loginForm.username" placeholder="用户名" prefix-icon="User" />
+                            </el-form-item>
+                            <el-form-item prop="password">
+                                <el-input v-model="loginForm.password" type="password" placeholder="密码" prefix-icon="Lock" @keyup.enter="handleLogin" />
+                            </el-form-item>
+                            <el-button type="primary" @click="handleLogin" :loading="loading" style="width: 100%">登录</el-button>
+                        </el-form>
+                    </el-tab-pane>
+                    <el-tab-pane label="注册" name="register">
+                        <el-form :model="registerForm" :rules="rules" ref="registerRef">
+                            <el-form-item prop="username">
+                                <el-input v-model="registerForm.username" placeholder="用户名" prefix-icon="User" />
+                            </el-form-item>
+                            <el-form-item prop="password">
+                                <el-input v-model="registerForm.password" type="password" placeholder="密码" prefix-icon="Lock" />
+                            </el-form-item>
+                            <el-button type="success" @click="handleRegister" :loading="loading" style="width: 100%">注册</el-button>
+                        </el-form>
+                    </el-tab-pane>
+                </el-tabs>
+            </div>
+        </div>
+
+        <!-- Main App -->
+        <div v-else class="app-container">
+            <header class="header">
+                <h1>📁 Personal Media Hub</h1>
+                <div class="user-info">
+                    <span>欢迎, {{ currentUser }}</span>
+                    <el-button type="danger" size="small" @click="logout">退出</el-button>
+                </div>
+            </header>
+
+            <div class="main-container">
+                <aside class="sidebar">
+                    <ul class="sidebar-menu">
+                        <li :class="{ active: currentView === 'upload' }" @click="currentView = 'upload'">
+                            <el-icon><upload /></el-icon> 上传文件
+                        </li>
+                        <li :class="{ active: currentView === 'gallery' }" @click="currentView = 'gallery'">
+                            <el-icon><folder /></el-icon> 文件管理
+                        </li>
+                    </ul>
+                </aside>
+
+                <main class="content">
+                    <!-- Upload View -->
+                    <div v-if="currentView === 'upload'">
+                        <h2 style="margin-bottom: 20px;">上传文件</h2>
+                        
+                        <div class="upload-area" 
+                             @drop.prevent="handleDrop" 
+                             @dragover.prevent="dragover = true"
+                             @dragleave.prevent="dragover = false"
+                             :class="{ dragover: dragover }"
+                             @click="$refs.fileInput.click()">
+                            <div class="upload-icon">📁</div>
+                            <p>点击或拖拽文件到此处上传</p>
+                            <p style="color: #999; font-size: 12px; margin-top: 10px;">支持图片、视频、文档格式</p>
+                            <p style="color: #999; font-size: 11px; margin-top: 5px;">图片: JPG, PNG, GIF, WEBP | 视频: MP4, AVI, MKV | 文档: PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT</p>
+                            <input type="file" ref="fileInput" multiple @change="handleFileSelect" style="display: none;">
+                        </div>
+
+                        <div v-if="uploadingFiles.length > 0" class="upload-progress">
+                            <h3>上传进度</h3>
+                            <div v-for="(file, index) in uploadingFiles" :key="index" style="margin: 10px 0;">
+                                <p>{{ file.name }} - {{ file.status }}</p>
+                                <el-progress :percentage="file.progress" :status="file.status === 'success' ? 'success' : file.status === 'error' ? 'exception' : ''" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Gallery View -->
+                    <div v-if="currentView === 'gallery'">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+                            <h2>我的文件 ({{ filteredFiles.length }}个)</h2>
+                            <el-button type="primary" @click="refreshFiles" :loading="loading">
+                                <el-icon><refresh /></el-icon> 刷新
+                            </el-button>
+                        </div>
+
+                        <div class="search-box">
+                            <el-input
+                                v-model="searchQuery"
+                                placeholder="搜索文件名..."
+                                clearable
+                                @input="handleSearch"
+                                @clear="loadFiles"
+                            >
+                                <template #prefix>
+                                    <el-icon><search /></el-icon>
+                                </template>
+                            </el-input>
+                        </div>
+
+                        <div class="type-filters">
+                            <div class="type-filter" :class="{ active: fileTypeFilter === '' }" @click="fileTypeFilter = ''">
+                                全部 ({{ fileStats.total }})
+                            </div>
+                            <div class="type-filter" :class="{ active: fileTypeFilter === 'image' }" @click="fileTypeFilter = 'image'">
+                                🖼️ 图片 ({{ fileStats.image }})
+                            </div>
+                            <div class="type-filter" :class="{ active: fileTypeFilter === 'video' }" @click="fileTypeFilter = 'video'">
+                                🎬 视频 ({{ fileStats.video }})
+                            </div>
+                            <div class="type-filter" :class="{ active: fileTypeFilter === 'document' }" @click="fileTypeFilter = 'document'">
+                                📄 文档 ({{ fileStats.document }})
+                            </div>
+                        </div>
+
+                        <div v-if="loading" class="loading">
+                            <el-icon class="is-loading" style="font-size: 40px;"><loading /></el-icon>
+                            <p>加载中...</p>
+                        </div>
+
+                        <div v-else-if="filteredFiles.length === 0" class="empty-state">
+                            <el-icon style="font-size: 64px; color: #ddd;"><folder /></el-icon>
+                            <p style="margin-top: 20px;">暂无文件，请先上传</p>
+                        </div>
+
+                        <div v-else class="file-grid">
+                            <div v-for="file in filteredFiles" :key="file.id" class="file-card">
+                                <div class="file-preview" @click="previewFile(file)">
+                                    <template v-if="file.file_type === 'image'">
+                                        <img :src="getThumbUrl(file)" @error="handleImageError($event)">
+                                    </template>
+                                    <template v-else-if="file.file_type === 'video'">
+                                        <span class="file-preview-icon video">🎬</span>
+                                    </template>
+                                    <template v-else>
+                                        <span class="file-preview-icon document">📄</span>
+                                    </template>
+                                </div>
+                                <div class="file-actions">
+                                    <el-button type="danger" circle size="small" @click="deleteFile(file)">
+                                        <el-icon><delete /></el-icon>
+                                    </el-button>
+                                </div>
+                                <div class="file-info">
+                                    <div class="file-title" :title="file.original_name">{{ file.original_name }}</div>
+                                    <div class="file-meta">
+                                        <span v-if="file.file_type === 'image'">🖼️</span>
+                                        <span v-else-if="file.file_type === 'video'">🎬</span>
+                                        <span v-else>📄</span>
+                                        {{ formatSize(file.file_size) }} | {{ formatDate(file.created_at) }}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </main>
+            </div>
+
+            <!-- Preview Modal -->
+            <div v-if="previewVisible" class="preview-modal" @click="previewVisible = false">
+                <span class="close-btn">&times;</span>
+                <template v-if="previewFileData?.file_type === 'image'">
+                    <img :src="previewUrl" @click.stop>
+                </template>
+                <template v-else-if="previewFileData?.file_type === 'video'">
+                    <video :src="previewUrl" controls autoplay @click.stop></video>
+                </template>
+                <template v-else>
+                    <div class="document-preview" @click.stop>
+                        <p>文档文件无法预览</p>
+                        <el-button type="primary" @click="downloadFile(previewFileData)">下载查看</el-button>
+                    </div>
+                </template>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, reactive, onMounted, computed, watch } = Vue;
+        const { ElMessage, ElMessageBox } = ElementPlus;
+
+        const API_BASE_URL = 'http://localhost:8000';
+        const api = axios.create({
+            baseURL: API_BASE_URL,
+            timeout: 30000
+        });
+
+        api.interceptors.request.use(config => {
+            const token = localStorage.getItem('token');
+            if (token) {
+                config.headers.Authorization = `Bearer ${token}`;
+            }
+            return config;
+        });
+
+        api.interceptors.response.use(
+            response => response,
+            error => {
+                if (error.response?.status === 401) {
+                    localStorage.removeItem('token');
+                    window.location.reload();
+                }
+                return Promise.reject(error);
+            }
+        );
+
+        const app = createApp({
+            setup() {
+                const isLoggedIn = ref(!!localStorage.getItem('token'));
+                const currentUser = ref(localStorage.getItem('username') || '');
+                const activeTab = ref('login');
+                const loading = ref(false);
+
+                const loginForm = reactive({ username: '', password: '' });
+                const registerForm = reactive({ username: '', password: '' });
+                const rules = {
+                    username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
+                    password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
+                };
+
+                const currentView = ref('upload');
+                const files = ref([]);
+                const allFiles = ref([]);  // 存储所有文件用于统计
+                const uploadingFiles = ref([]);
+                const dragover = ref(false);
+
+                const previewVisible = ref(false);
+                const previewUrl = ref('');
+                const previewFileData = ref(null);
+
+                const searchQuery = ref('');
+                const fileTypeFilter = ref('');
+
+                const handleLogin = async () => {
+                    if (!loginForm.username || !loginForm.password) {
+                        ElMessage.error('请填写完整信息');
+                        return;
+                    }
+                    
+                    loading.value = true;
+                    try {
+                        const formData = new FormData();
+                        formData.append('username', loginForm.username);
+                        formData.append('password', loginForm.password);
+                        
+                        const response = await api.post('/api/auth/login', formData);
+                        const { access_token } = response.data;
+                        
+                        localStorage.setItem('token', access_token);
+                        localStorage.setItem('username', loginForm.username);
+                        
+                        isLoggedIn.value = true;
+                        currentUser.value = loginForm.username;
+                        ElMessage.success('登录成功！');
+                        loadFiles();
+                    } catch (error) {
+                        ElMessage.error(error.response?.data?.detail || '登录失败');
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                const handleRegister = async () => {
+                    if (!registerForm.username || !registerForm.password) {
+                        ElMessage.error('请填写完整信息');
+                        return;
+                    }
+                    
+                    loading.value = true;
+                    try {
+                        await api.post('/api/auth/register', registerForm);
+                        ElMessage.success('注册成功！请登录');
+                        activeTab.value = 'login';
+                    } catch (error) {
+                        ElMessage.error(error.response?.data?.detail || '注册失败');
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                const logout = () => {
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('username');
+                    isLoggedIn.value = false;
+                    ElMessage.success('已退出登录');
+                };
+
+                const handleDrop = (e) => {
+                    dragover.value = false;
+                    const files = e.dataTransfer.files;
+                    uploadFiles(files);
+                };
+
+                const handleFileSelect = (e) => {
+                    const files = e.target.files;
+                    uploadFiles(files);
+                    e.target.value = '';
+                };
+
+                const allowedExtensions = [
+                    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp',
+                    '.mp4', '.mov', '.avi', '.mkv', '.webm',
+                    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.csv', '.zip', '.rar'
+                ];
+
+                const uploadFiles = async (fileList) => {
+                    const validFiles = [];
+                    for (let i = 0; i < fileList.length; i++) {
+                        const file = fileList[i];
+                        const ext = '.' + file.name.split('.').pop().toLowerCase();
+                        if (!allowedExtensions.includes(ext)) {
+                            ElMessage.warning(`${file.name} 文件类型不支持`);
+                            continue;
+                        }
+                        validFiles.push(file);
+                    }
+
+                    const uploadPromises = validFiles.map(file => {
+                        return new Promise((resolve) => {
+                            const uploadItem = reactive({
+                                name: file.name,
+                                progress: 0,
+                                status: 'uploading'
+                            });
+                            uploadingFiles.value.push(uploadItem);
+
+                            const formData = new FormData();
+                            formData.append('file', file);
+
+                            api.post('/api/files/upload', formData, {
+                                headers: { 'Content-Type': 'multipart/form-data' },
+                                onUploadProgress: (progressEvent) => {
+                                    uploadItem.progress = Math.round(
+                                        (progressEvent.loaded * 100) / progressEvent.total
+                                    );
+                                }
+                            }).then(response => {
+                                uploadItem.status = 'success';
+                                ElMessage.success(`${file.name} 上传成功`);
+                                resolve(response);
+                            }).catch(error => {
+                                uploadItem.status = 'error';
+                                ElMessage.error(`${file.name} 上传失败: ${error.response?.data?.detail || ''}`);
+                                resolve(null);
+                            });
+                        });
+                    });
+
+                    await Promise.all(uploadPromises);
+                    
+                    // 刷新文件列表
+                    fileTypeFilter.value = '';
+                    searchQuery.value = '';
+                    await loadFiles();
+                    
+                    setTimeout(() => {
+                        uploadingFiles.value = [];
+                        // 不跳转，留在上传页面
+                    }, 500);
+                };
+
+                const loadFiles = async () => {
+                    loading.value = true;
+                    try {
+                        // 获取所有文件（用于统计）
+                        const allResponse = await api.get('/api/files/list?limit=1000');
+                        allFiles.value = allResponse.data.items;
+                        
+                        // 获取筛选后的文件（用于显示）
+                        let url = '/api/files/list?limit=100';
+                        if (searchQuery.value) {
+                            url += `&search=${encodeURIComponent(searchQuery.value)}`;
+                        }
+                        if (fileTypeFilter.value) {
+                            url += `&file_type=${fileTypeFilter.value}`;
+                        }
+                        const response = await api.get(url);
+                        files.value = response.data.items;
+                    } catch (error) {
+                        ElMessage.error('加载文件列表失败');
+                    } finally {
+                        loading.value = false;
+                    }
+                };
+
+                const refreshFiles = () => {
+                    loadFiles();
+                };
+
+                const handleSearch = () => {
+                    loadFiles();
+                };
+
+                const deleteFile = async (file) => {
+                    const savedFilter = fileTypeFilter.value;
+                    const savedSearch = searchQuery.value;
+                    
+                    try {
+                        await ElMessageBox.confirm(`确定要删除 "${file.original_name}" 吗？`, '确认删除', {
+                            confirmButtonText: '删除',
+                            cancelButtonText: '取消',
+                            type: 'warning'
+                        });
+                        
+                        await api.delete(`/api/files/${file.id}`);
+                        ElMessage.success('删除成功');
+                        
+                        // 先获取所有文件（用于正确统计）
+                        fileTypeFilter.value = '';
+                        searchQuery.value = '';
+                        await loadFiles();
+                        
+                        // 恢复筛选状态
+                        fileTypeFilter.value = savedFilter;
+                        searchQuery.value = savedSearch;
+                        
+                        // 重新加载筛选后的文件（如果有筛选）
+                        if (savedFilter || savedSearch) {
+                            await loadFiles();
+                        }
+                    } catch (error) {
+                        if (error !== 'cancel') {
+                            ElMessage.error('删除失败');
+                        }
+                    }
+                };
+
+                const previewFile = (file) => {
+                    previewFileData.value = file;
+                    previewUrl.value = `${API_BASE_URL}${file.file_path}`;
+                    previewVisible.value = true;
+                };
+
+                const downloadFile = async (file) => {
+                    try {
+                        const response = await api.get(`/api/files/${file.id}/download`, {
+                            responseType: 'blob'
+                        });
+                        const url = window.URL.createObjectURL(new Blob([response.data]));
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.setAttribute('download', file.original_name);
+                        document.body.appendChild(link);
+                        link.click();
+                        link.remove();
+                    } catch (error) {
+                        ElMessage.error('下载失败');
+                    }
+                };
+
+                const getThumbUrl = (file) => {
+                    let url = file.thumb_path || file.file_path;
+                    if (!url) return '';
+                    if (url.startsWith('http')) return url;
+                    return `${API_BASE_URL}${url}`;
+                };
+
+                const handleImageError = (e) => {
+                    console.log('Image load error:', e.target.src);
+                    e.target.style.display = 'none';
+                    const parent = e.target.parentElement;
+                    if (parent) {
+                        parent.innerHTML = '<span style="font-size: 48px; color: #999;">🖼️</span>';
+                    }
+                };
+
+                const formatSize = (bytes) => {
+                    if (!bytes) return '0 B';
+                    if (bytes < 1024) return bytes + ' B';
+                    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+                    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+                };
+
+                const formatDate = (dateStr) => {
+                    if (!dateStr) return '';
+                    const date = new Date(dateStr);
+                    return date.toLocaleDateString('zh-CN');
+                };
+
+                const fileStats = computed(() => {
+                    const stats = { total: allFiles.value.length, image: 0, video: 0, document: 0 };
+                    allFiles.value.forEach(f => {
+                        if (f.file_type === 'image') stats.image++;
+                        else if (f.file_type === 'video') stats.video++;
+                        else if (f.file_type === 'document') stats.document++;
+                    });
+                    return stats;
+                });
+
+                const filteredFiles = computed(() => {
+                    if (!fileTypeFilter.value) return files.value;
+                    return files.value.filter(f => f.file_type === fileTypeFilter.value);
+                });
+
+                // 监听筛选条件变化，自动重新加载
+                watch(fileTypeFilter, () => {
+                    loadFiles();
+                });
+
+                watch(searchQuery, () => {
+                    loadFiles();
+                });
+
+                onMounted(() => {
+                    if (isLoggedIn.value) {
+                        loadFiles();
+                    }
+                });
+
+                return {
+                    isLoggedIn,
+                    currentUser,
+                    activeTab,
+                    loading,
+                    loginForm,
+                    registerForm,
+                    rules,
+                    currentView,
+                    files,
+                    uploadingFiles,
+                    dragover,
+                    previewVisible,
+                    previewUrl,
+                    previewFileData,
+                    searchQuery,
+                    fileTypeFilter,
+                    fileStats,
+                    filteredFiles,
+                    handleLogin,
+                    handleRegister,
+                    logout,
+                    handleDrop,
+                    handleFileSelect,
+                    loadFiles,
+                    refreshFiles,
+                    handleSearch,
+                    deleteFile,
+                    previewFile,
+                    downloadFile,
+                    getThumbUrl,
+                    handleImageError,
+                    formatSize,
+                    formatDate
+                };
+            }
+        });
+
+        for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+            app.component(key, component);
+        }
+
+        app.use(ElementPlus);
+        app.mount('#app');
+    </script>
+</body>
+</html>
